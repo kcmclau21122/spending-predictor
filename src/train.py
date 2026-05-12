@@ -19,6 +19,7 @@ from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error
 from sklearn.model_selection import TimeSeriesSplit
 
 import lightgbm as lgb
+from src.drift import save_drift_baseline
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 logger = logging.getLogger(__name__)
@@ -102,6 +103,7 @@ def train_category_models(
             logger.error("Failed to train %s: %s", cat, e)
 
     joblib.dump(registry, MODELS_DIR / "category_registry.joblib")
+    save_drift_baseline(category_features)
     logger.info("Saved %d category models to %s", len(registry), MODELS_DIR)
     return registry
 

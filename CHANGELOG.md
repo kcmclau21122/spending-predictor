@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.0] - 2026-05-12
+
+### Added
+- `src/drift.py` — drift detection module with `save_drift_baseline`, `check_drift`, and `print_drift_report`
+- Drift baseline is saved automatically after every `train` run (per-category mean, std, timestamp)
+- `drift` CLI subcommand — standalone check that reports which categories have drifted >30% from baseline
+- Drift check runs automatically during `predict` and `run` and prints console warnings for flagged categories
+- Drift status table added to HTML report — shows trained avg, recent avg, drift %, and retrain recommendation per category
+
+---
+
 ## [1.0.1] - 2026-05-09
 
 ### Added

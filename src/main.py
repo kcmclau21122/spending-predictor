@@ -32,6 +32,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("train", help="Ingest CSVs, build features, train models")
 
+    drift_p = sub.add_parser("drift", help="Check for spending drift vs. trained baseline")
+    drift_p.add_argument("--threshold", type=float, default=0.30,
+                         help="Drift threshold as a fraction (default: 0.30 = 30%%)")
+
     predict_p = sub.add_parser("predict", help="Load models and forecast ahead")
     predict_p.add_argument(
         "--months", type=int, default=12, help="Months to forecast (default: 12)"
@@ -53,10 +57,26 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _add_retirement_args(p: argparse.ArgumentParser) -> None:
-    p.add_argument("--monthly-income", type=float, default=5000.0)
-    p.add_argument("--current-savings", type=float, default=0.0)
-    p.add_argument("--retirement-target", type=float, default=1_000_000.0)
-    p.add_argument("--years-to-retirement", type=int, default=20)
+    p.add_argument("--monthly-income", type=float, default=20_703.0)
+    p.add_argument("--current-savings", type=float, default=1_301_757.0)
+    p.add_argument("--retirement-target", type=float, default=1_400_000.0)
+    p.add_argument("--years-to-retirement", type=int, default=3)
+
+
+def cmd_drift(args) -> list[dict]:
+    from src.ingest import load_directory, monthly_summary
+    from src.features import build_category_features
+    from src.drift import check_drift, print_drift_report
+
+    print(f"[drift] Loading CSVs from {args.data_dir} ...")
+    df = load_directory(args.data_dir, fmt=args.fmt)
+    monthly_df = monthly_summary(df)
+    category_features = build_category_features(monthly_df)
+
+    threshold = getattr(args, "threshold", 0.30)
+    drift_report = check_drift(category_features, threshold=threshold)
+    print_drift_report(drift_report)
+    return drift_report
 
 
 def cmd_train(args) -> None:
@@ -87,19 +107,20 @@ def cmd_predict(args) -> dict:
     from src.features import build_category_features, get_feature_columns
     from src.train import load_category_models, load_prophet_model
     from src.predict import predict_next_months, prophet_forecast, rank_reduction_opportunities
+    from src.drift import check_drift, print_drift_report
 
     print("[predict] Loading models ...")
     _registry, models = load_category_models()
     prophet_model = load_prophet_model()
 
-    # We need category_features built from stored models; reload from saved registry
-    # The registry contains paths but not the feature DataFrames — re-ingest is needed.
-    # For the predict command we require the user to supply the same data dir.
     from src.ingest import load_directory, monthly_summary
     df = load_directory(args.data_dir, fmt=args.fmt)
     monthly_df = monthly_summary(df)
     category_features = build_category_features(monthly_df)
     feature_cols = get_feature_columns()
+
+    drift_report = check_drift(category_features)
+    print_drift_report(drift_report)
 
     print(f"[predict] Forecasting {args.months} months ahead ...")
     forecasts = predict_next_months(models, category_features, feature_cols, n_months=args.months)
@@ -113,6 +134,7 @@ def cmd_predict(args) -> dict:
         "forecasts": forecasts,
         "prophet_df": prophet_df,
         "reduction_df": reduction_df,
+        "drift_report": drift_report,
     }
 
 
@@ -147,6 +169,7 @@ def cmd_report(args, predict_results: dict | None = None) -> None:
         reduction_df=predict_results["reduction_df"],
         retirement_result=retirement_result,
         output_path=output_path,
+        drift_report=predict_results.get("drift_report"),
     )
     print(f"[report] Report written to {report_path}")
 
@@ -162,6 +185,7 @@ def cmd_run(args) -> None:
     from src.train import train_category_models, train_prophet_model
     from src.predict import predict_next_months, prophet_forecast, rank_reduction_opportunities
     from src.report import retirement_gap_analysis, generate_html_report
+    from src.drift import check_drift, print_drift_report
     import pandas as pd
 
     print(f"[run] Loading CSVs from {args.data_dir} ...")
@@ -173,6 +197,9 @@ def cmd_run(args) -> None:
     total_df = build_total_features(monthly_df)
     feature_cols = get_feature_columns()
     prophet_df_input = build_prophet_df(total_df)
+
+    drift_report = check_drift(category_features)
+    print_drift_report(drift_report)
 
     print(f"[run] Training {len(category_features)} category models ...")
     import joblib as _joblib
@@ -208,6 +235,7 @@ def cmd_run(args) -> None:
         reduction_df=reduction_df,
         retirement_result=retirement_result,
         output_path=output_path,
+        drift_report=drift_report,
     )
     print(f"[run] Report written to {report_path}")
 
@@ -218,6 +246,8 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "train":
         cmd_train(args)
+    elif args.command == "drift":
+        cmd_drift(args)
     elif args.command == "predict":
         cmd_predict(args)
     elif args.command == "report":

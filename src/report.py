@@ -32,6 +32,9 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     .summary-box { background: #fff; padding: 20px; border-radius: 8px; margin-bottom: 30px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
     .gap-positive { color: #27ae60; font-weight: bold; }
     .gap-negative { color: #e74c3c; font-weight: bold; }
+    .drift-ok { color: #27ae60; }
+    .drift-warn { color: #e74c3c; font-weight: bold; }
+    .drift-banner { background: #fff3cd; border-left: 4px solid #f0ad4e; padding: 12px 20px; border-radius: 4px; margin-bottom: 16px; }
   </style>
 </head>
 <body>
@@ -76,6 +79,39 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
       {% endfor %}
     </table>
   </div>
+
+  {% if drift_report %}
+  <h2>Model Drift Status</h2>
+  <div class="summary-box">
+    {% set flagged = drift_report | selectattr("needs_retrain") | list %}
+    {% if flagged %}
+    <div class="drift-banner">
+      <strong>Warning:</strong> {{ flagged|length }} categor{{ "y" if flagged|length == 1 else "ies" }}
+      show &gt;30% spending drift from training baseline — consider retraining.
+    </div>
+    {% else %}
+    <p class="drift-ok">All categories are within 30% of their training baseline. No retrain needed.</p>
+    {% endif %}
+    <table>
+      <tr><th>Category</th><th>Trained Avg ($)</th><th>Recent Avg ($)</th><th>Drift</th><th>Status</th></tr>
+      {% for r in drift_report %}
+      <tr>
+        <td>{{ r.category }}</td>
+        <td>${{ "%.2f"|format(r.trained_mean) }}</td>
+        <td>${{ "%.2f"|format(r.recent_mean) }}</td>
+        <td>{{ "%.1f"|format(r.drift_pct * 100) }}%</td>
+        <td>
+          {% if r.needs_retrain %}
+            <span class="drift-warn">Retrain recommended</span>
+          {% else %}
+            <span class="drift-ok">OK</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endif %}
 
   <script>
     {{ plotly_scripts }}
@@ -141,6 +177,7 @@ def generate_html_report(
     reduction_df: pd.DataFrame,
     retirement_result: dict,
     output_path: "str | Path",
+    drift_report: "list[dict] | None" = None,
 ) -> Path:
     """Render a Jinja2 HTML report with embedded Plotly charts."""
     try:
@@ -233,6 +270,7 @@ def generate_html_report(
         retirement=retirement_result,
         retirement_target=retirement_target,
         reduction_df=reduction_df,
+        drift_report=drift_report or [],
         plotly_scripts="\n".join(scripts),
     )
 
